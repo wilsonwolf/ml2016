@@ -1,0 +1,358 @@
+---
+title: "ML HW1 Q2"
+author: "Adib Ayay"
+date: "January 15, 2017"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+#Question 2
+
+```{r}
+#load necessary libraries and functions
+library(kknn)
+library(rpart)
+library(caret)
+download.file("https://raw.githubusercontent.com/ChicagoBoothML/HelpR/master/docv.R", "docv.R")
+source("docv.R") #this has docvknn used below
+
+#Load data and attach it
+url<-'https://raw.githubusercontent.com/ChicagoBoothML/DATA___UsedCars/master/UsedCars.csv'
+UsedCars<-read.csv(url)
+
+#set randomizer seed
+set.seed(77)
+
+attach(UsedCars)
+#sort by increasing mileage
+UsedCars<-UsedCars[order(mileage),]
+```
+##1
+There are a number of possible applications of the Used Car data supplied:
+\begin{enumerate}
+\item A used car dealership can use the data to determine what a reasonable acquisition price is for a used vehicle given a target profit margin, and a description of the vehicle. This type of information would be crucial in a negotiation. 
+\item A car dealership can also use the data in combination with a predictive model to get a sense of how competitors are likely to price their products. This would allow the business to undercut competitors' prices if so desired.
+\item Consumers often choose to enter into lease agreements with manufacturers for vehicles. In these cases, a manufacturer is responsible for reselling the vehicle after the lease term is over, and is therefore concerned about the determinants of a car's residual value. Using this data in conjunction with a predictive model may provide manufacturers with better information so that lease terms and installments will be appropriately determined.
+\end{enumerate}
+
+##2
+```{r}
+#Splitting in-sample and out-of-sample data
+nobserv = nrow(UsedCars) #number of observations
+ntrain = nobserv * 0.75 #number of observations for training data
+tr = sample(1:nobserv,ntrain) #sampling 75% observations
+train = UsedCars[tr,] #training data
+test = UsedCars[-tr,] #test data
+detach(UsedCars)
+```
+
+##3
+```{r}
+attach(train)
+fit <- lm(price~mileage)
+summary(fit)
+plot(mileage, price, xlab="Mileage", ylab="Price",
+     main="Scatter Plot of Price vs Mileage")
+lines(mileage,fit$fitted.values, col="red", lwd=3)
+```
+    
+    
+The relationship between Price and Mileage using ordinary linear regression (shown by red line) is:
+$$price = `r fit$coefficients[1]` -`r fit$coefficients[2]` * mileage + e$$
+
+##4
+```{r}
+#Polynomial Fit of the Data
+
+numFolds <- c(15,10,5)
+polyDegree <- c(1:12)
+cv <- list()
+
+#Cross Validation
+for (n in 1:length(numFolds)) {
+  folds <- createFolds(price, k = numFolds[n],list = TRUE, returnTrain = FALSE)
+  cvmean=rep(0,length(polyDegree)) #store results for mean
+  for (j in folds){
+    testIndex <- j
+    trainingTemp <- train[-testIndex,]
+    testTemp <-  train[testIndex,]
+    for (i in polyDegree){
+      model <- lm(price ~ poly(mileage,i), data=trainingTemp)
+      model_prediction <- predict(model,testTemp)
+      residualFold <- (testTemp$price-model_prediction)^2
+      msError <- sum(residualFold)
+      cvmean[i] <- cvmean[i] + msError 
+    }
+  }
+  cv[n] <- list(sqrt(cvmean/length(price)))
+}
+
+#Plotting results for Cross Validation
+rgy <- range(c(cv[[1]],cv[[2]],cv[[3]]))
+plot(polyDegree,cv[[1]],type="l",col="red", main = "RMSE vs Polynomial Degree for each CV",ylim = rgy, lwd=2,
+     cex.lab=0.8, xlab="Polynomial Degree", ylab="RMSE")
+lines(polyDegree,cv[[2]],col="blue",lwd=2)
+lines(polyDegree,cv[[3]],col="green",lwd=2)
+legend("topleft",legend=c("10-Fold","5-fold","15 fold"),
+       col=c("blue","green","red"),lwd=2,cex=0.8)
+
+#Plotting results for average Cross Validations
+cvFinal <- (cv[[1]]+cv[[2]]+cv[[3]])/3
+plot(polyDegree, cvFinal, type="l",col="red", main = "Average RMSE vs Polynomial Degree Over All CVs",xlab="Polynomial Degree", ylab="RMSE")
+
+#Finding best degree
+degreeBest <- polyDegree[which.min(cvFinal)]
+
+cat('\n')
+cat('Optimal Degree is:',degreeBest, '\n')
+
+#Retraining Using the Entire Training Set for Optimal Polynomial Degree
+poly.fit <- lm(price ~ poly(mileage,5), data=train)
+print(summary(poly.fit))
+cat('Correlation between residuals and fitted values:', cor(poly.fit$fitted.values,poly.fit$residuals),'\n')
+```
+##5
+###k-NN: Selecting model by Cross Validation
+```{r}
+CV_FOLDS <- 5 #folds of 5
+N_CVS <- 3 #three cross validations
+k_range = 400 : 600
+n=length(price) #number of observations
+cv_mean = rep(0,length(k_range)) #store average rmse
+cv_matrix = matrix(0,length(k_range),N_CVS) #keep results for each split
+for(i in 1:N_CVS) {
+    cv_rmse = docvknn(matrix(mileage,ncol=1),price,k_range,CV_FOLDS)
+    cv_mean = cv_mean + cv_rmse
+    cv_matrix[,i] = sqrt(cv_rmse/n)
+}
+cv_mean = cv_mean/N_CVS
+cv_mean = sqrt(cv_mean/n)
+plot(k_range,cv_mean,xlab="k",ylab="rmse")
+for(i in 1:N_CVS) lines(k_range,cv_matrix[,i],col=i,lty=3) #plot each result
+lines(k_range,cv_mean,type="b",col="black") #plot average result
+
+detach(train)
+
+#get the min
+kbest = k_range[which.min(cv_mean)]
+cat("the best k is: ",kbest,"\n")
+
+#Fit
+kfbest = kknn(price~mileage,train,train,k=kbest,kernel = "rectangular") #get training fitted values
+```
+
+###Regression tree: Selecting model by Cross Validation
+```{r}
+car.tree = rpart(price~mileage, data=train, 
+                         control=rpart.control(minsplit=5,  
+                                               cp=0.0001,
+                                               xval=10)   
+)
+
+#Size big tree
+nbig1 = length(unique(car.tree$where))
+cat('Size of big tree: ',nbig1,'\n')
+
+#Prunning
+plotcp(car.tree)
+bestcp = car.tree$cptable[which.min(car.tree$cptable[, "xerror"]),
+                                        "CP"]
+best.car.tree <- prune(tree = car.tree,
+                       cp = bestcp)
+cat('cp corrsponding to the smallest value of xerror is: ',bestcp,'\n')
+
+#Size pruned tree
+nsmall1 = length(unique( best.car.tree$where))
+cat('Size of pruned tree: ',nsmall1,'\n')
+
+#FIT
+car.fit = predict(best.car.tree,train) #get training fitted values
+```
+
+###Plotting polynomial, k-NN and Regression tree
+```{r}
+plot(UsedCars$mileage,UsedCars$price,cex.lab=1) #plot price vs mileage for all data
+
+#plot regression tree fit
+oo=order(train$mileage)
+lines(train$mileage[oo],car.fit[oo],col="green",lwd=2) #step function fit
+
+#plot k-NN
+lines(train$mileage[oo],kfbest$fitted.values[oo],col="red", lwd=2)
+
+#plot polynomial
+lines(train$mileage[oo],predict(poly.fit,train)[oo], col = "blue", lwd = 2)
+
+legend("topright",legend=c("Polynomial","k-NN","Regression tree"),
+           col=c("blue","red","green"),lty=c(1,1,1))
+```
+
+###k-NN model is most adequate
+Out of the three models, the Regression tree, as expected, suffers from high variance.The polynomial and k-NN on the other hand seem to have very similar fits for Mileage upto the tail of the graph where the scarce number of observations with high mileage (+300k) unveils the overly flexible nature of the polynomial fit while the k-NN continues smoothly. For these reasons, I would choose the k-NN model to fit Price vs Mileage.
+
+```{r}
+#Fit to test data
+kfbest = kknn(price~mileage,train,test,k=kbest,kernel = "rectangular") #get test fitted values
+#Test error for k-NN
+n = length(test$price)
+RMSE_knn1 = sqrt(mse(test$price, kfbest$fitted.values)/n)
+cat('The test error (RMSE) for k-NN model is: $',RMSE_knn1,'\n')
+```
+
+##6
+###k-NN: Predicting Price using mileage and year variables
+```{r}
+attach(train)
+#get variables rescaled
+x = cbind(mileage,year)
+colnames(x) = c("mileage","year")
+y = price
+mmsc=function(x) {return((x-min(x))/(max(x)-min(x)))}
+xs = apply(x,2,mmsc) #apply scaling function to each column of x
+train.rescaled = data.frame(y,xs)
+
+#plot y vs each x
+par(mfrow=c(1,2)) #two plot frames
+plot(x[,1],y,xlab="mileage",ylab="Price")
+plot(x[,2],y,xlab="year",ylab="Price")
+
+#Run Cross Validation multiple times
+CV_FOLDS <- 5 #folds of 5
+N_CVS <- 3 #three cross validations
+k_range = 50 : 100
+n=length(price) #number of observations
+cv_mean = rep(0,length(k_range)) #store average rmse
+cv_matrix = matrix(0,length(k_range),N_CVS) #keep results for each split
+for(i in 1:N_CVS) {
+    cv_rmse = docvknn(xs,price,k_range,CV_FOLDS)
+    cv_mean = cv_mean + cv_rmse
+    cv_matrix[,i] = sqrt(cv_rmse/n)
+}
+cv_mean = cv_mean/N_CVS
+cv_mean = sqrt(cv_mean/n)
+plot(k_range,cv_mean,xlab="k",ylab="rmse")
+for(i in 1:N_CVS) lines(k_range,cv_matrix[,i],col=i,lty=3) #plot each result
+lines(k_range,cv_mean,type="b",col="black") #plot average result
+
+detach(train)
+
+#get the min
+kbest2 = k_range[which.min(cv_mean)]
+cat("the best k is: ",kbest2,"\n")
+
+#Rescale on test data
+attach(test)
+x = cbind(mileage,year)
+colnames(x) = c("mileage","year")
+y = price
+mmsc=function(x) {return((x-min(x))/(max(x)-min(x)))}
+xs = apply(x,2,mmsc) #apply scaling function to each column of x
+test.rescaled = data.frame(y,xs)
+detach(test)
+
+#Fit to test data
+kfbest = kknn(y~.,train.rescaled,test.rescaled,k=kbest2,kernel = "rectangular")
+
+#Test error for k-NN
+n = length(test$price)
+RMSE_knn2 = sqrt(mse(test$price, kfbest$fitted.values)/n)
+cat('The test error (RMSE) for k-NN model Mielage+Year is: $',RMSE_knn2,'\n')
+```
+###Regression tree: Predicting Price using mileage and year variables
+```{r}
+#Regression
+car.year.tree = rpart(price~mileage+year, data=train, 
+                         control=rpart.control(minsplit=5,  
+                                               cp=0.0001,
+                                               xval=10)   
+)
+
+#Size big tree
+nbig2 = length(unique(car.year.tree$where))
+cat('Size of big tree: ',nbig2,'\n')
+
+#Prunning
+plotcp(car.year.tree)
+bestcp = car.year.tree$cptable[which.min(car.year.tree$cptable[, "xerror"]),
+                                        "CP"]
+best.year.tree <- prune(tree = car.year.tree,
+                       cp = bestcp)
+cat('cp corrsponding to the smallest value of xerror is: ',bestcp,'\n')
+
+#Size pruned tree
+nsmall2 = length(unique( best.year.tree$where))
+cat('Size of pruned tree: ',nsmall2,'\n')
+
+#FIT
+car.year.fit = predict(best.year.tree,test) #get test fitted values for Price~Mileage+Year
+car.fit = predict(best.car.tree,test) #get test fitted values for Price~Mileage
+
+#Test error for regression tree
+n = length(test$price)
+RMSE_tree1 = sqrt(mse(test$price, car.fit)/n)
+cat('The test error (RMSE) for regression tree model Price~Mileage is: $',RMSE_tree1,'\n')
+RMSE_tree2 = sqrt(mse(test$price, car.year.fit)/n)
+cat('The test error (RMSE) for regression tree model Price~Mileage+Year is: $',RMSE_tree2,'\n')
+```
+\begin{itemize}
+\item As expected the optimal k dropped from `r kbest` to `r kbest2` when we added the new variable Year. The additional dimention makes it so that observations are farther from each other so a smaller k is expected (the curse of dimentionality).
+\item The size of the optimal tree increased from `r nsmall1` to `r nsmall2` because the new dimension will naturally require more splitting of the data, thus a larger trees.
+\item To test model performance, we predict test data using the four models and compute the RMSE for each. The models performance for both k-NN and regression tree improved by adding the variable Year. For the k-NN models, the RMSE dropped from `r RMSE_knn1` to `r RMSE_knn2`; while for regression trees the RMSE dropped similarly from `r RMSE_tree1` to `r RMSE_tree2`. Adding the variable Year improved our model's predictive ability.
+\end{itemize}
+
+
+##7
+```{r}
+#Dummy variables
+train$isOneOwner = as.factor(train$isOneOwner)
+train$color = as.factor(train$color)
+train$fuel = as.factor(train$fuel)
+train$region = as.factor(train$region)
+train$soundSystem = as.factor(train$soundSystem)
+train$wheelType = as.factor(train$wheelType)
+
+#Regression tree
+car.big.tree = rpart(price~., data=train, 
+                         control=rpart.control(minsplit=5,  
+                                               cp=0.0001,
+                                               xval=10)   
+)
+
+#Size big tree
+nbig3 = length(unique(car.big.tree$where))
+cat('Size of big tree: ',nbig3,'\n')
+
+#prunning
+plotcp(car.big.tree)
+bestcp = car.big.tree$cptable[which.min(car.big.tree$cptable[, "xerror"]),
+                                        "CP"]
+best.all.tree <- prune(tree = car.big.tree,
+                       cp = bestcp)
+cat('cp corrsponding to the smallest value of xerror is: ',bestcp,'\n')
+
+#Size pruned tree
+nsmall3 = length(unique(best.all.tree$where))
+cat('Size of big tree: ',nsmall3,'\n')
+
+#FIT
+car.big.fit = predict(best.all.tree,test) #get test fitted values
+
+#Test error for regression tree
+n = length(test$price)
+RMSE = sqrt(mse(test$price, car.big.fit)/n)
+cat('The test error (RMSE) for regression tree model on all variables is: $',RMSE,'\n')
+```
+
+##Bonus Question
+
+The following approach may be used for variable selection. It mirrors some methods that we have discussed briefly such as bagging and random forests:
+\begin{enumerate}
+\item Randomly separate the data into different segments or folds. 
+\item For each fold, fit the regression tree (for constant $\alpha$)
+\item At each node, calculate a weighted impurity decrease e.g. Mean Decrease Gini function for the predictor $p_{i}$ used.
+\item Add up the weighted impurity decreases across the tree for each predictor. This gives us a way of ranking the predictive power of each variable.
+\item Repeat this process for the other folds, and take an average for each predictor to determine the overall result. 
+\item We can choose the most influential predictor using the average weighted impurity decreases across all folds.
+\item The process can be modified to randomize the predictor choices at each node (as in a Random forest). We can then average results across all random forests for our mean impurity decrease function. This would probably be particularly helpful with the issue of correlated predictors. 
+\end{enumerate}
