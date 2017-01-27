@@ -1,0 +1,22 @@
+---
+title: "Machine Learning Pset 2"
+author: "Karl Jiang"
+date: "January 26, 2017"
+output: pdf_document
+---
+
+```{r} 
+install.packages("randomForest")
+library(randomForest)
+MovieReview_train <- read.csv("MovieReview_train.csv")
+MovieReview_test <- read.csv("MovieReview_test.csv")
+
+as.factor(MovieReview_train$sentiment)
+
+rfc <- randomForest(as.factor(sentiment) ~ ., data = MovieReview_train, randomForest.default = )
+dim(rfc$confusion)
+summary(rfc)
+sentiment <- predict(rfc, newdata = MovieReview_test)
+results <- data.frame(sentiment = sentiment)
+write.csv(results, "hw2-2-karljiang.csv"")
+```
