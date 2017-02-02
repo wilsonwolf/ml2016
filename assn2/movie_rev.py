@@ -35,10 +35,10 @@ gb_clf = GridSearchCV( GradientBoostingClassifier(), gb_params, scoring = "accur
 #ada_clf.fit(X_tr, y_tr) 
 #pd.to_pickle(ada_clf, "ada_gridsearch.pkl") 
 
-rfc_clf.fit(X_tr, y_tr) 
-pd.to_pickle(rfc_clf, "rfc_gridsearch.pkl") 
+#rfc_clf.fit(X_tr, y_tr) 
+#pd.to_pickle(rfc_clf, "rfc_gridsearch.pkl") 
 
-gb_clf.fit(X_tr, y_tr) 
-pd.to_pickle(gb_clf, "gb_gridsearch.pkl") 
+#gb_clf.fit(X_tr, y_tr) 
+#pd.to_pickle(gb_clf, "gb_gridsearch.pkl") 
 
 
