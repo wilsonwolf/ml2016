@@ -1,0 +1,73 @@
+---
+title: "Machine Learning Pset 2"
+author: "Karl Jiang"
+date: "January 26, 2017"
+output: pdf_document
+---
+
+#Question 2 - Movie Reviews) 
+##Data engineering stuff. Data into train, cross validation, test 
+```{r} 
+#install.packages("randomForest")
+#library(randomForest)
+library(Matrix)
+MovieReview_train <- read.csv("MovieReview_train.csv")
+MovieReview_test <- read.csv("MovieReview_test.csv")
+
+n = nrow(MovieReview_train)
+tr_ind = sample(seq_len(n), size = floor(n * 0.8) ) 
+
+mr_tr = MovieReview_train[tr_ind, ]
+y_tr = MovieReview_train$sentiment[tr_ind]
+
+mr_cv = MovieReview_train[-tr_ind, ]
+y_cv =  MovieReview_train$sentiment[-tr_ind]
+
+mr_tr = mr_tr[, 1:(ncol(MovieReview_train) - 1) ]
+mr_cv = mr_cv[, 1:(ncol(MovieReview_train) - 1)]
+
+tr_sparse = Matrix(as.matrix(mr_tr), sparse = TRUE)
+cv_sparse = Matrix(as.matrix(mr_cv), sparse = TRUE)
+test_sparse = Matrix(as.matrix(MovieReview_test), sparse = TRUE)
+```
+
+##XGBoost: Tuning parameters 
+```{r, eval = FALSE}
+xgbGrid <- expand.grid(
+  nrounds = c(2500),
+  max_depth = c(3:8),
+  eta = c(0.005),
+  gamma = c(0, 0.75, 1.25),
+  colsample_bytree = c(0.632, 1),
+  min_child_weight = c(1),
+  subsample = c(0.5)
+)
+ 
+xgbTrControl <- trainControl(
+  number = 10,
+  classProbs = TRUE,
+  summaryFunction = twoClassSummary
+)
+ 
+xgbTrain <- train(
+  x = tr_sparse, 
+  y = factor(y_tr, labels = c("No","Yes")),
+  #objective = "binary:logistic",
+  trControl = xgbTrControl,
+  tuneGrid = xgbGrid,
+  method = "xgbTree",
+  metric = "ROC"
+)
+
+f_name = "xgb_movie_cv.rda"
+save(xgbTrain, file = f_name)
+```
+
+##Writing Results to csv 
+```{r}
+#attach(f_name)
+sentiment <- predict(xgbTrain, newdata = test_sparse)
+names(sentiment) <- NULL
+results <- data.frame(sentiment = sentiment)
+write.csv(results, "hw2-2-karl_adib_jaja_chase_xgboost.csv")
+```

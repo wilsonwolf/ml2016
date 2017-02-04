@@ -1,0 +1,101 @@
+---
+title: "Machine Learning Pset 2"
+author: "Karl Jiang"
+date: "January 26, 2017"
+output: pdf_document
+---
+
+#Question 2 - Movie Reviews) 
+##Data engineering stuff. Data into train, cross validation, test 
+```{r} 
+#install.packages("randomForest")
+#library(randomForest)
+library(Matrix)
+MovieReview_train <- read.csv("MovieReview_train.csv")
+MovieReview_test <- read.csv("MovieReview_test.csv")
+
+
+n = nrow(MovieReview_train)
+tr_ind = sample(seq_len(n), size = floor(n * 0.8) ) 
+
+mr_tr = MovieReview_train[tr_ind, ]
+y_tr = MovieReview_train$sentiment[tr_ind]
+
+mr_cv = MovieReview_train[-tr_ind, ]
+y_cv =  MovieReview_train$sentiment[-tr_ind]
+
+mr_tr = mr_tr[, 1:(ncol(MovieReview_train) - 1) ]
+mr_cv = mr_cv[, 1:(ncol(MovieReview_train) - 1)]
+
+tr_sparse = Matrix(as.matrix(mr_tr), sparse = TRUE)
+cv_sparse = Matrix(as.matrix(mr_cv), sparse = TRUE)
+```
+
+##Random Forest in case nothing works 
+```{r, eval = FALSE}
+rfc <- randomForest(as.factor(sentiment) ~ ., data = MovieReview_train, randomForest.default = )
+dim(rfc$confusion)
+summary(rfc)
+sentiment <- predict(rfc, newdata = MovieReview_test)
+names(sentiment) <- NULL
+results <- data.frame(sentiment = sentiment)
+write.csv(results, "hw2-2-karljiang.csv")
+```
+
+##XGBoost 
+```{r, eval = FALSE}
+#install.packages("xgboost")
+#install.packages("caret")
+library(xgboost)
+library(caret)
+
+xgb_tr <- xgb.DMatrix(data = tr_sparse, label = y_tr)
+xgb_cv <- xgb.DMatrix(data = cv_sparse, label = y_cv)
+
+bstSparse <- xgboost(data = xgb_tr, max.depth = 8, nthread = 2, nrounds = 4000, objective = "binary:logistic", eta = 0.005, colsample_bytree = 0.632, gamma = 0.75)
+pred = predict(bstSparse, newdata = xgb_cv)
+prediction <- as.numeric(pred > 0.5)
+err <- mean(as.numeric(pred > 0.5) != y_cv)
+print(paste("test-error=", err))
+
+```
+
+```{r}
+#mr_tr = MovieReview_train
+#y_tr = MovieReview_train$sentiment
+
+#mr_tr = mr_tr[, 1:(ncol(MovieReview_train) - 1) ]
+#mr_cv = mr_cv[, 1:(ncol(MovieReview_train) - 1)]
+
+#tr_sparse = Matrix(as.matrix(mr_tr), sparse = TRUE)
+
+xgbGrid <- expand.grid(
+  nrounds = c(2500),
+  max_depth = c(3:8),
+  eta = c(0.005),
+  gamma = c(0, 0.75, 1.25),
+  colsample_bytree = c(0.632, 1),
+  min_child_weight = c(1),
+  subsample = c(0.5)
+)
+ 
+xgbTrControl <- trainControl(
+  number = 10,
+  classProbs = TRUE,
+  summaryFunction = twoClassSummary
+)
+ 
+xgbTrain <- train(
+  x = tr_sparse, 
+  y = factor(y_tr, labels = c("No","Yes")),
+  #objective = "binary:logistic",
+  trControl = xgbTrControl,
+  tuneGrid = xgbGrid,
+  method = "xgbTree",
+  metric = "ROC"
+)
+
+f_name = "xgb_movie_cv.rda"
+save(xgbTrain, file = f_name)
+#attach(f_name)
+```
